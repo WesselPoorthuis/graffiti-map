@@ -1,5 +1,7 @@
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
+from pyheif_pillow_opener import register_heif_opener
+import pyheif
 
 import folium
 from folium import IFrame
@@ -14,7 +16,20 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 
 def get_exif(filename):
-    exif = Image.open(photo_dir + '/' + filename)._getexif()
+    print(filename)
+    if filename.endswith('.HEIC'):
+        heif_file = pyheif.read(photo_dir + '/' + filename)
+        image = Image.frombytes(
+        heif_file.mode,
+        heif_file.size,
+        heif_file.data,
+        "raw",
+        heif_file.mode,
+        heif_file.stride,
+        )
+    else:
+        image = Image.open(photo_dir + '/' + filename)
+    exif = image._getexif()
 
     if exif is not None:
         for key, value in exif.copy().items():
@@ -25,7 +40,8 @@ def get_exif(filename):
             for key in exif['GPSInfo'].copy().keys():
                 name = GPSTAGS.get(key,key)
                 exif['GPSInfo'][name] = exif['GPSInfo'].pop(key)
-
+        else:
+            exif['GPSInfo'] = None
     return exif
 
 def get_decimal_coordinates(info):
@@ -62,13 +78,18 @@ m=folium.Map(location=[52.0907, 5.1214], zoom_start=14)
 for photos in os.listdir(photo_dir):
     if photos.endswith('.jpg'):
         filelist.append(photos)
+    if photos.endswith('.HEIC'):
+        filelist.append(photos)
 
 # Get coordinates
 for file in filelist:
     exif = get_exif(file)
-    latlon = get_decimal_coordinates(exif['GPSInfo'])
-    lat.append(latlon[0])
-    lon.append(latlon[1])
+    if exif['GPSInfo'] is not None:
+        latlon = get_decimal_coordinates(exif['GPSInfo'])
+        lat.append(latlon[0])
+        lon.append(latlon[1])
+    else:
+        filelist.remove(file)
 
 # Create dataframe
 index = range(1,len(filelist)+1)
