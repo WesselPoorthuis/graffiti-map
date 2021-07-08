@@ -4,7 +4,7 @@ from pyheif_pillow_opener import register_heif_opener
 
 import folium
 from folium import IFrame
-
+from folium.plugins import Fullscreen
 import pandas
 import base64
 
@@ -115,7 +115,8 @@ resize_dir = current_dir + '/resized'
 # Create base map
 print('Creating base map...')
 m=folium.Map(location=[52.0907, 5.1214], zoom_start=14)
-
+fullscreen = Fullscreen()
+fullscreen.add_to(m)
 # Add photos in dir to list
 print('Gathering photographs...')
 for photos in os.listdir(photo_dir):
@@ -169,6 +170,7 @@ for lat,lon,filename in zip(df['lat'],df['lon'],df['filename']):
     icon = folium.Icon(color='red')
     marker = folium.Marker(location=[lat, lon], popup=popup, icon=icon)
     marker.add_to(m)
+
 
 # Saving map
 print('Saving map...')
