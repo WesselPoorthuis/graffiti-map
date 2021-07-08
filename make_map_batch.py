@@ -6,6 +6,7 @@ import folium
 from folium import IFrame
 from folium.plugins import Fullscreen, MarkerCluster
 
+import pandas
 import base64
 
 import os
@@ -14,7 +15,11 @@ import sys
 # Required to import from root directory
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-def get_exif(image):
+def get_exif(filename):
+    if filename.endswith('.HEIC'):
+        register_heif_opener()
+
+    image = Image.open(photo_dir + '/' + filename)
     try:
         exif = image._getexif()
     except:
@@ -57,11 +62,11 @@ def rotate_image(image):
     exif = image._getexif()
 
     if exif[orientation] == 3:
-        image=image.rotate(180, expand = True)
+        image=image.rotate(180)
     elif exif[orientation] == 6:
-        image=image.rotate(270, expand = True)
+        image=image.rotate(270)
     elif exif[orientation] == 8:
-        image=image.rotate(90, expand = True)
+        image=image.rotate(90)
     return image
 
 def calculate_size(image):
@@ -73,10 +78,22 @@ def calculate_size(image):
         if old_width > max_width:
             width = max_width
             height = old_height * width/old_width
+        elif old_height > max_height:
+            height = max_height
+            width = old_width * height/old_height
+        else:
+            height = old_height
+            width = old_width
     else:
         if old_height > max_height:
             height = max_height
             width = old_width * height/old_height
+        elif old_width > max_width:
+            width = max_width
+            height = old_height * width/old_width
+        else:
+            height = old_height
+            width = old_width
 
     new_size = (int(round(width)), int(round(height)))
     return new_size
@@ -84,9 +101,12 @@ def calculate_size(image):
 # Base parameters
 max_width = 1000
 max_height = 750
+
+# Lists
 filelist = []
-i = 0
-j = 0
+lat = []
+lon = []
+removelist = []
 
 # Directories
 current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -101,52 +121,60 @@ fullscreen = Fullscreen()
 fullscreen.add_to(m)
 
 # Add photos in dir to list
-print('Gathering photographs from directory...')
+print('Gathering photographs...')
 for photos in os.listdir(photo_dir):
     if photos.endswith('.HEIC'):
         filelist.append(photos)
-    if photos.endswith('.jpg'):
-        filelist.append(photos)
-    if photos.endswith('.jpeg'):
-        filelist.append(photos)
 
-print('Processing photographs...')
+# Get coordinates
+print('Getting coordinates...')
 for file in filelist:
-    # Open file
-    if file.endswith('.HEIC'):
-        register_heif_opener()
-    image = Image.open(photo_dir + '/' + file)
-
-    # Get coordinates
-    exif = get_exif(image)
+    exif = get_exif(file)
     if exif is None:
-        j+=1
-        continue
-    (lat,lon) = get_decimal_coordinates(exif['GPSInfo'])
+        removelist.append(file)
+    else:
+        latlon = get_decimal_coordinates(exif['GPSInfo'])
+        lat.append(latlon[0])
+        lon.append(latlon[1])
 
-    # Process image
+filelist = [x for x in filelist if x not in removelist]
+
+# Create dataframe
+index = range(1,len(filelist)+1)
+columns = ['filename','lat','lon']
+df = pandas.DataFrame(index=index, columns=columns)
+
+df['filename']=filelist
+df['lat']=lat
+df['lon']=lon
+
+# Process images
+print('Resizing and rotating images...')
+for lat,lon,filename in zip(df['lat'],df['lon'],df['filename']):
+    image = Image.open(photo_dir + '/' + filename)
     image = rotate_image(image)
-    (width, height)  = calculate_size(image)
-    image = image.resize((width, height) , Image.ANTIALIAS)
-    resized_location = resize_dir + '/' + file
+    new_size = calculate_size(image)
+    (width, height) = new_size
+    image = image.resize(new_size, Image.ANTIALIAS)
+    resized_location = resize_dir + '/' + filename
     image.save(resized_location, 'jpeg', quality=100)
 
-    # Create marker
-    encoded = base64.b64encode(open(resized_location, 'rb').read())
+# Construct markers
+print('Constructing markers...')
+for lat,lon,filename in zip(df['lat'],df['lon'],df['filename']):
+    # image = Image.open(resized_location)
+    encoded = base64.b64encode(open(resize_dir + '/' + filename, 'rb').read())
     html = ''' <img src="data:image/png;base64,{}">'''.format
     iframe = IFrame(html(encoded.decode('UTF-8')), width=width+20, height=height+20)
     popup = folium.Popup(iframe, max_width=1000)
     icon = folium.Icon(color='red', icon='camera')
     marker = folium.Marker(location=[lat, lon], popup=popup, icon=icon)
     marker.add_to(marker_cluster)
-    i+=1
-    print(f'    Processed {i} photographs', end='\r')
 
-print(f'\n    {j} photographs had no geodata')
 
 # Saving map
 print('Saving map...')
-filename = "graffiti-map.html"
+
+filename = "map.html"
 path = os.path.join(current_dir, filename)
 m.save(path)
-print('Saved')
