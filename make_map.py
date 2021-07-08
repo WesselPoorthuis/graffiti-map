@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ExifTags
 from PIL.ExifTags import TAGS, GPSTAGS
 from pyheif_pillow_opener import register_heif_opener
 
@@ -50,9 +50,56 @@ def get_decimal_coordinates(info):
     if 'Latitude' in info and 'Longitude' in info:
         return [info['Latitude'], info['Longitude']]
 
+def rotate_image(image):
+    '''
+    Rotates image based on orienation when photo was taken.
+    '''
+    for orientation in ExifTags.TAGS.keys():
+        if ExifTags.TAGS[orientation]=='Orientation':
+            break
+
+    exif = image._getexif()
+
+    if exif[orientation] == 3:
+        image=image.rotate(180)
+    elif exif[orientation] == 6:
+        image=image.rotate(270)
+    elif exif[orientation] == 8:
+        image=image.rotate(90)
+    return image
+
+def calculate_size(image):
+    '''
+    Resizes image to fit popup
+    '''
+    old_width, old_height = image.size
+    if old_width > old_height:
+        if old_width > max_width:
+            width = max_width
+            height = old_height * width/old_width
+        elif old_height > max_height:
+            height = max_height
+            width = old_width * height/old_height
+        else:
+            height = old_height
+            width = old_width
+    else:
+        if old_height > max_height:
+            height = max_height
+            width = old_width * height/old_height
+        elif old_width > max_width:
+            width = max_width
+            height = old_height * width/old_width
+        else:
+            height = old_height
+            width = old_width
+
+    new_size = (int(round(width)), int(round(height)))
+    return new_size
+
 # Base parameters
 max_width = 1000
-max_height = 500
+max_height = 750
 
 # Lists
 filelist = []
@@ -63,12 +110,14 @@ removelist = []
 # Directories
 current_dir = os.path.dirname(os.path.realpath(__file__))
 photo_dir = current_dir + '/photos'
-resize_dir = current_dir + '/resized/'
+resize_dir = current_dir + '/resized'
 
 # Create base map
+print('Creating base map...')
 m=folium.Map(location=[52.0907, 5.1214], zoom_start=14)
 
 # Add photos in dir to list
+print('Gathering photographs...')
 for photos in os.listdir(photo_dir):
     # if photos.endswith('.jpg'):
     #     o+=1
@@ -77,6 +126,7 @@ for photos in os.listdir(photo_dir):
         filelist.append(photos)
 
 # Get coordinates
+print('Getting coordinates...')
 for file in filelist:
     exif = get_exif(file)
     if exif is None:
@@ -97,36 +147,28 @@ df['filename']=filelist
 df['lat']=lat
 df['lon']=lon
 
-# Construct markers
+# Process images
+print('Processing images...')
 for lat,lon,filename in zip(df['lat'],df['lon'],df['filename']):
     image = Image.open(photo_dir + '/' + filename)
-
-    # Resize to fit popup
-    old_width, old_height = image.size
-    if old_width > max_width:
-        width = max_width
-        height = old_height * width/old_width
-    elif old_height > max_height:
-        height = max_height
-        width = old_width * height/old_height
-    else:
-        height = old_height
-        width = old_width
-    new_size = (int(round(width)), int(round(height)))
-
-    #
+    image = rotate_image(image)
+    new_size = calculate_size(image)
+    (width, height) = new_size
     image = image.resize(new_size, Image.ANTIALIAS)
-    resized_location = resize_dir + filename
+    resized_location = resize_dir + '/' + filename
     image.save(resized_location, 'jpeg', quality=100)
 
-    encoded = base64.b64encode(open(resized_location, 'rb').read())
+# Construct markers
+print('Constructing markers...')
+for lat,lon,filename in zip(df['lat'],df['lon'],df['filename']):
+    # image = Image.open(resized_location)
+    encoded = base64.b64encode(open(resize_dir + '/' + filename, 'rb').read())
     html = ''' <img src="data:image/png;base64,{}">'''.format
     iframe = IFrame(html(encoded.decode('UTF-8')), width=width+20, height=height+20)
     popup = folium.Popup(iframe, max_width=1000)
     icon = folium.Icon(color='red')
     marker = folium.Marker(location=[lat, lon], popup=popup, icon=icon)
     marker.add_to(m)
-
 
 # Saving map
 print('Saving map...')
