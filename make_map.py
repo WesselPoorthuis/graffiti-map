@@ -140,9 +140,9 @@ for file in filelist:
     marker = folium.Marker(location=[lat, lon], popup=popup, icon=icon)
     marker.add_to(marker_cluster)
     i+=1
-    print(f'    Processed {i} photographs', end='\r')
+    print(f'    Added {i} photographs to the map', end='\r')
 
-print(f'\n    {j} photographs had no geodata')
+print(f'\n    {j} photographs had no geodata and are thus not included in the map')
 
 # Saving map
 print('Saving map...')
